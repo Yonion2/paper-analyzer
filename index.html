@@ -6,6 +6,7 @@
 <title>论文深度分析助手 · Paper Analyzer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root {
   --bg: #f5f7fb;
@@ -166,6 +167,22 @@ textarea:focus { outline:none; border-color:var(--primary); }
 footer { text-align:center; font-size:12px; color:var(--text-2); opacity:.75; margin-top:32px; padding-top:16px; border-top:1px solid var(--border); }
 footer .warn { color:var(--amber); }
 
+/* History */
+.hist-list { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.hist-item { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:all .15s; }
+.hist-item:hover { border-color: var(--primary); }
+.hist-item-main { flex:1; min-width:0; }
+.hist-item-title { font-size:13.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hist-date { font-size:12px; color:var(--text-2); margin-top:2px; }
+.hist-del { font-size:12px; color:var(--red); background:none; border:none; cursor:pointer; padding:4px 6px; flex-shrink:0; }
+.hist-del:hover { text-decoration:underline; }
+.hist-status { font-size:13px; color:var(--text-2); margin-bottom:10px; }
+#histDetailReport .dim-body { font-size:13px; }
+#histDetailReport h1, #histDetailReport h2, #histDetailReport h3, #histDetailReport h4 { font-size:13.5px; margin:10px 0 4px; }
+#histDetailReport p { margin:4px 0; }
+#histDetailReport ul, #histDetailReport ol { margin:4px 0 4px 18px; }
+#histDetailReport li { margin:2px 0; }
+
 /* Toast */
 .toast {
   position:fixed; left:50%; bottom:32px; transform:translateX(-50%) translateY(20px);
@@ -192,10 +209,13 @@ footer .warn { color:var(--amber); }
         <p>创新点 · Motivation · Idea · 实现 · 未来方向</p>
       </div>
     </div>
-    <button class="key-btn" id="keyBtn">
-      <span class="key-dot" id="keyDot"></span>
-      <span id="keyLabel">配置 API Key</span>
-    </button>
+    <div style="display:flex;gap:8px">
+      <button class="key-btn" id="histBtn">📚 历史记录</button>
+      <button class="key-btn" id="keyBtn">
+        <span class="key-dot" id="keyDot"></span>
+        <span id="keyLabel">配置 API Key</span>
+      </button>
+    </div>
   </header>
 
   <div class="card">
@@ -265,6 +285,25 @@ footer .warn { color:var(--amber); }
     <div class="hint">
       💡 建议在 DeepSeek 平台「用量管理」中设置消费限额，防止 Key 意外被盗刷。Key 仅保存在本机浏览器中。
     </div>
+    <div style="border-top:1px solid var(--border); margin-top:16px; padding-top:14px;">
+      <h3 style="font-size:15px; margin-bottom:4px;">📚 云端记录（Supabase）</h3>
+      <p class="desc">在 <a href="https://supabase.com" target="_blank" style="color:var(--primary)">supabase.com</a> 免费创建项目后，填下面两项配置并注册/登录账号。记录按账号隔离，<b>每人只能看到自己的数据</b>。</p>
+      <input type="text" id="sbUrl" placeholder="Supabase URL，如 https://xxxx.supabase.co" autocomplete="off" style="margin-top:4px">
+      <input type="text" id="sbKey" placeholder="Supabase anon public key" autocomplete="off" style="margin-top:8px">
+      <div id="authArea" style="margin-top:8px">
+        <input type="email" id="authEmail" placeholder="邮箱（登录 / 注册用）" autocomplete="email">
+        <input type="password" id="authPass" placeholder="密码（至少 6 位）" autocomplete="current-password" style="margin-top:8px">
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-sm btn-outline" id="authLogin" style="flex:1">登录</button>
+          <button class="btn btn-sm btn-outline" id="authSignup" style="flex:1">注册新账号</button>
+        </div>
+      </div>
+      <div id="authLoggedIn" style="display:none;margin-top:10px;align-items:center;justify-content:space-between;gap:8px;background:var(--green-bg);border-radius:8px;padding:10px 12px;">
+        <span id="authUserLabel" style="font-size:13px;color:var(--green);font-weight:500;"></span>
+        <button class="btn btn-sm btn-outline" id="authLogout" style="flex-shrink:0">退出登录</button>
+      </div>
+      <div class="hint" id="authHint" style="display:none"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="keyClear">清除</button>
       <button class="btn btn-primary" id="keySave">保存</button>
@@ -273,6 +312,30 @@ footer .warn { color:var(--amber); }
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- History Modal -->
+<div class="modal-mask" id="histMask">
+  <div class="modal" style="max-width:640px">
+    <div id="histListView">
+      <h3>📚 我的阅读记录</h3>
+      <p class="hist-status" id="histStatus">正在加载…</p>
+      <div class="hist-list" id="histList"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="histClose">关闭</button>
+      </div>
+    </div>
+    <div id="histDetailView" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px">
+        <button class="btn btn-sm btn-outline" id="histBack">← 返回列表</button>
+        <button class="btn btn-sm btn-outline" id="histDel" style="color:var(--red)">删除这条记录</button>
+      </div>
+      <h3 id="histDetailTitle" style="font-size:15px; margin-bottom:10px; word-break:break-all;"></h3>
+      <div id="histDetailReport" style="max-height:280px; overflow-y:auto; border:1px solid var(--border); border-radius:10px; padding:12px; font-size:13px;"></div>
+      <p style="font-size:13px; color:var(--text-2); margin:12px 0 6px;">✍️ 我的笔记（输入后自动保存）</p>
+      <textarea id="histNote" placeholder="写下你的想法、疑问、摘录……" style="min-height:110px;"></textarea>
+    </div>
+  </div>
+</div>
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -294,12 +357,21 @@ let apiKey = localStorage.getItem('pa_api_key') || '';
 let pdfText = '';
 let analyzing = false;
 let currentReport = '';
+let sb = {
+  url: localStorage.getItem('pa_sb_url') || '',
+  key: localStorage.getItem('pa_sb_key') || ''
+};
+let supabase = null;
+let currentUser = null;
+let currentDetailId = null;
+let noteTimer = null;
 
 const $ = id => document.getElementById(id);
 
 function init() {
   updateKeyUI();
-  $('keyBtn').onclick = () => { $('keyInput').value = apiKey; $('modalMask').classList.add('show'); $('keyInput').focus(); };
+  initSupabase();
+  $('keyBtn').onclick = () => { $('keyInput').value = apiKey; $('sbUrl').value = sb.url; $('sbKey').value = sb.key; updateAuthUI(); $('modalMask').classList.add('show'); $('keyInput').focus(); };
   $('modalMask').onclick = e => { if (e.target === $('modalMask')) $('modalMask').classList.remove('show'); };
   $('keySave').onclick = saveKey;
   $('keyClear').onclick = clearKey;
@@ -324,6 +396,22 @@ function init() {
   $('copyBtn').onclick = copyReport;
   $('downloadBtn').onclick = downloadReport;
   $('againBtn').onclick = () => location.reload();
+
+  $('histBtn').onclick = () => { $('histMask').classList.add('show'); loadRecords(); };
+  $('histClose').onclick = () => $('histMask').classList.remove('show');
+  $('histMask').onclick = e => { if (e.target === $('histMask')) $('histMask').classList.remove('show'); };
+  $('histBack').onclick = backToList;
+  $('histDel').onclick = () => deleteRecord(currentDetailId);
+  $('histNote').addEventListener('input', () => {
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(saveNote, 1200);
+  });
+
+  $('authLogin').onclick = authLogin;
+  $('authSignup').onclick = authSignup;
+  $('authLogout').onclick = authLogout;
+  $('authEmail').addEventListener('keydown', e => { if (e.key === 'Enter') authLogin(); });
+  $('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') authLogin(); });
 }
 
 function switchTab(tab) {
@@ -336,13 +424,19 @@ function switchTab(tab) {
 
 function saveKey() {
   const v = $('keyInput').value.trim();
-  if (!v) { showToast('请输入 API Key'); return; }
-  apiKey = v;
-  localStorage.setItem('pa_api_key', v);
+  const u = $('sbUrl').value.trim(), k = $('sbKey').value.trim();
+  if (!v && !u && !k) { showToast('请至少填写 API Key'); return; }
+  if ((u || k) && !(u && k)) { showToast('云端记录需填全 Supabase URL / Key'); return; }
+  if (v) { apiKey = v; localStorage.setItem('pa_api_key', v); }
+  if (u && k) {
+    sb.url = u; sb.key = k;
+    localStorage.setItem('pa_sb_url', u); localStorage.setItem('pa_sb_key', k);
+    if (!supabase) initSupabase();
+  }
   $('modalMask').classList.remove('show');
   updateKeyUI();
   updateAnalyzeBtn();
-  showToast('API Key 已保存');
+  showToast('已保存 ✓');
 }
 
 function clearKey() {
@@ -429,6 +523,7 @@ async function runAnalysis() {
 
     setProgress(95, '正在整理报告…', 5);
     renderReport(report);
+    saveRecord(report);
     setProgress(100, '分析完成', 5);
     setTimeout(hideProgress, 600);
     showToast('分析完成 ✓');
@@ -487,6 +582,200 @@ function parseApiError(err) {
   if (m.includes('fetch') || m.includes('Failed')) return '网络请求失败，请检查网络连接后重试。';
   if (m.includes('context')) return '论文内容过长，超出了模型上下文限制，请尝试精简后重试。';
   return '分析失败：' + m;
+}
+
+/* ---------- Supabase Auth ---------- */
+
+function sbConfigured() { return !!(sb.url && sb.key); }
+
+function initSupabase() {
+  if (!sbConfigured() || supabase || typeof window.supabase === 'undefined') return;
+  supabase = window.supabase.createClient(sb.url, sb.key);
+  // 会话恢复（supabase-js 自动持久化登录态，刷新页面后自动恢复）
+  supabase.auth.getUser().then(({ data }) => {
+    currentUser = data.user || null;
+    updateAuthUI();
+  });
+  supabase.auth.onAuthStateChange((event, session) => {
+    currentUser = session ? session.user : null;
+    updateAuthUI();
+  });
+}
+
+function updateAuthUI() {
+  const loggedIn = !!currentUser;
+  $('authArea').style.display = loggedIn ? 'none' : '';
+  $('authLoggedIn').style.display = loggedIn ? 'flex' : 'none';
+  if (loggedIn && currentUser.email) $('authUserLabel').textContent = '✅ 已登录：' + currentUser.email;
+}
+
+function showAuthHint(msg) {
+  const h = $('authHint');
+  h.textContent = msg;
+  h.style.display = msg ? '' : 'none';
+}
+
+async function authLogin() {
+  const email = $('authEmail').value.trim();
+  const pass = $('authPass').value;
+  if (!email || !pass) { showToast('请输入邮箱和密码'); return; }
+  if (!supabase) initSupabase();
+  if (!supabase) { showAuthHint('请先填写 Supabase URL 和 anon key，点击「保存」后再登录。'); return; }
+  showAuthHint('');
+  const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+  if (error) { showToast('登录失败：' + error.message); return; }
+  showToast('登录成功 ✓');
+}
+
+async function authSignup() {
+  const email = $('authEmail').value.trim();
+  const pass = $('authPass').value;
+  if (!email || !pass) { showToast('请输入邮箱和密码'); return; }
+  if (pass.length < 6) { showToast('密码至少 6 位'); return; }
+  if (!supabase) initSupabase();
+  if (!supabase) { showAuthHint('请先填写 Supabase URL 和 anon key，点击「保存」后再注册。'); return; }
+  showAuthHint('');
+  const { data, error } = await supabase.auth.signUp({ email, password: pass });
+  if (error) { showToast('注册失败：' + error.message); return; }
+  if (data && data.user && !data.session) {
+    showAuthHint('注册成功！已发送确认邮件，请查收并点击确认链接后，再回来登录。');
+  } else {
+    showToast('注册成功，已自动登录 ✓');
+  }
+}
+
+async function authLogout() {
+  if (!supabase) return;
+  const { error } = await supabase.auth.signOut();
+  if (!error) showToast('已退出登录');
+}
+
+function getTitle() {
+  if (pdfText.trim()) {
+    const n = $('fileName').textContent.split('（')[0].trim();
+    return n || 'PDF 论文';
+  }
+  const t = $('textInput').value.trim().split('\n')[0];
+  return (t || '未命名论文').slice(0, 60);
+}
+
+async function saveRecord(report) {
+  if (!sbConfigured() || !report) return;
+  if (!supabase) initSupabase();
+  if (!supabase) return;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  try {
+    const { error } = await supabase.from('records').insert({
+      user_id: user.id,
+      title: getTitle(),
+      report: report,
+      note: ''
+    });
+    if (!error) showToast('分析完成，已保存到云端记录 ✓');
+  } catch (e) {}
+}
+
+async function loadRecords() {
+  const list = $('histList');
+  const status = $('histStatus');
+  if (!sbConfigured()) {
+    status.textContent = '尚未配置云端记录。点击右上角「配置」，填写 Supabase URL / anon key 并登录账号后，分析记录会自动保存到这里。';
+    list.innerHTML = '';
+    return;
+  }
+  if (!supabase) initSupabase();
+  if (!currentUser) {
+    status.textContent = '未登录。点击右上角「配置」，用邮箱密码登录后即可查看自己的记录。';
+    list.innerHTML = '';
+    return;
+  }
+  status.textContent = '正在加载…';
+  try {
+    const { data: rows, error } = await supabase
+      .from('records')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    if (!rows || !rows.length) {
+      status.textContent = '暂无记录，分析论文后会自动保存到这里（仅本人可见）。';
+      list.innerHTML = '<div class="hist-empty">— 暂无记录 —</div>';
+      return;
+    }
+    status.textContent = '共 ' + rows.length + ' 条记录 · 仅本人可见';
+    list.innerHTML = rows.map(r =>
+      '<div class="hist-item">' +
+        '<div class="hist-item-main">' +
+          '<div class="hist-item-title">' + esc(r.title) + '</div>' +
+          '<div class="hist-date">' + fmtTime(r.created_at) + (r.note ? ' · ✍️ 有笔记' : '') + '</div>' +
+        '</div>' +
+        '<button class="hist-del">删除</button>' +
+      '</div>'
+    ).join('');
+    list.querySelectorAll('.hist-item').forEach((item, i) => {
+      item.querySelector('.hist-item-main').onclick = () => openDetail(rows[i]);
+      item.querySelector('.hist-del').onclick = e => { e.stopPropagation(); deleteRecord(rows[i].id); };
+    });
+  } catch (e) {
+    status.textContent = '加载失败：' + e.message + '（请检查 Supabase 配置、表结构与 RLS 策略）';
+    list.innerHTML = '';
+  }
+}
+
+function openDetail(r) {
+  currentDetailId = r.id;
+  $('histDetailTitle').textContent = r.title;
+  $('histDetailReport').innerHTML = '<div class="dim-body">' + (marked.parse(r.report || '') || '') + '</div>';
+  $('histNote').value = r.note || '';
+  $('histListView').style.display = 'none';
+  $('histDetailView').style.display = '';
+}
+
+function backToList() {
+  currentDetailId = null;
+  $('histDetailView').style.display = 'none';
+  $('histListView').style.display = '';
+  loadRecords();
+}
+
+async function deleteRecord(id) {
+  if (!id) return;
+  if (!confirm('确定删除这条记录吗？此操作不可恢复。')) return;
+  if (!supabase) { showToast('未配置云端记录'); return; }
+  try {
+    const { error } = await supabase.from('records').delete().eq('id', id);
+    if (!error) {
+      showToast('已删除 ✓');
+      backToList();
+    } else {
+      showToast('删除失败：' + error.message);
+    }
+  } catch (e) {
+    showToast('删除失败，请检查网络');
+  }
+}
+
+async function saveNote() {
+  if (!currentDetailId) return;
+  if (!supabase) return;
+  const note = $('histNote').value;
+  try {
+    const { error } = await supabase.from('records').update({ note }).eq('id', currentDetailId);
+    if (!error) showToast('笔记已保存 ✓');
+  } catch (e) {}
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
 /* ---------- 工具函数 ---------- */
