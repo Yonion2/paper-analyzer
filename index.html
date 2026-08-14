@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>论文深度分析助手 · Paper Analyzer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+<style>
+:root {
+  --bg: #f5f7fb;
+  --card: #ffffff;
+  --border: #e3e8f0;
+  --text: #1f2d3d;
+  --text-2: #5c6b80;
+  --primary: #3b5bdb;
+  --primary-dark: #2f4ab8;
+  --primary-bg: #eef2ff;
+  --accent: #7048e8;
+  --green: #0f7b4d;
+  --green-bg: #e6f6ee;
+  --amber: #b26a00;
+  --amber-bg: #fdf3e3;
+  --red: #c0392b;
+  --red-bg: #fdecea;
+  --radius: 14px;
+  --shadow: 0 1px 3px rgba(31,45,61,.06), 0 4px 16px rgba(31,45,61,.05);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.6;
+}
+.container { max-width: 860px; margin: 0 auto; padding: 24px 16px 80px; }
+
+/* Header */
+header { display:flex; align-items:center; justify-content:space-between; padding: 8px 0 20px; }
+.logo { display:flex; align-items:center; gap:12px; }
+.logo-badge {
+  width:40px; height:40px; border-radius:11px; display:flex; align-items:center; justify-content:center;
+  background: linear-gradient(135deg, var(--primary), var(--accent)); color:#fff; font-size:20px; font-weight:500;
+}
+.logo h1 { font-size:18px; font-weight:600; letter-spacing:.2px; }
+.logo p { font-size:12px; color:var(--text-2); margin-top:1px; }
+.key-btn {
+  display:flex; align-items:center; gap:6px; padding:8px 14px; border-radius:10px; border:1px solid var(--border);
+  background:var(--card); color:var(--text-2); font-size:13px; cursor:pointer; transition:all .15s;
+}
+.key-btn:hover { border-color: var(--primary); color: var(--primary); }
+.key-dot { width:8px; height:8px; border-radius:50%; background:var(--red); }
+.key-dot.ok { background: var(--green); }
+
+/* Key modal */
+.modal-mask { position:fixed; inset:0; background:rgba(31,45,61,.35); display:none; align-items:center; justify-content:center; z-index:100; padding:16px; }
+.modal-mask.show { display:flex; }
+.modal { background:var(--card); border-radius:16px; max-width:440px; width:100%; padding:24px; box-shadow:0 12px 40px rgba(31,45,61,.18); }
+.modal h3 { font-size:16px; margin-bottom:6px; }
+.modal .desc { font-size:13px; color:var(--text-2); margin-bottom:16px; }
+.modal input { width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:10px; font-size:14px; font-family:monospace; }
+.modal input:focus { outline:none; border-color:var(--primary); }
+.modal .hint { font-size:12px; color:var(--text-2); background:var(--primary-bg); border-radius:8px; padding:8px 10px; margin:12px 0; }
+.modal .hint a { color:var(--primary); }
+.modal-actions { display:flex; gap:10px; margin-top:14px; }
+.btn {
+  padding:10px 18px; border-radius:10px; border:none; font-size:14px; cursor:pointer; font-weight:500; transition:all .15s;
+}
+.btn-primary { background:var(--primary); color:#fff; flex:1; }
+.btn-primary:hover { background:var(--primary-dark); }
+.btn-ghost { background:var(--bg); color:var(--text-2); border:1px solid var(--border); }
+.btn-ghost:hover { color:var(--red); border-color:var(--red); }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+
+/* Card */
+.card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; margin-bottom:16px; }
+.card h2 { font-size:15px; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+.section-num {
+  width:22px; height:22px; border-radius:7px; background:var(--primary-bg); color:var(--primary);
+  font-size:12px; font-weight:600; display:inline-flex; align-items:center; justify-content:center;
+}
+
+/* Tabs */
+.tabs { display:flex; gap:6px; margin-bottom:14px; }
+.tab {
+  padding:8px 16px; border-radius:9px; border:1px solid var(--border); background:var(--card);
+  font-size:13px; color:var(--text-2); cursor:pointer; transition:all .15s;
+}
+.tab.active { background:var(--primary); border-color:var(--primary); color:#fff; font-weight:500; }
+
+/* Paste area */
+textarea {
+  width:100%; min-height:200px; padding:14px; border:1px solid var(--border); border-radius:12px;
+  font-size:13px; line-height:1.7; resize:vertical; font-family:inherit; color:var(--text);
+}
+textarea:focus { outline:none; border-color:var(--primary); }
+.char-count { font-size:12px; color:var(--text-2); text-align:right; margin-top:6px; }
+
+/* Upload area */
+.dropzone {
+  border:2px dashed var(--border); border-radius:12px; padding:44px 20px; text-align:center;
+  cursor:pointer; transition:all .15s; background:var(--bg);
+}
+.dropzone:hover, .dropzone.drag { border-color:var(--primary); background:var(--primary-bg); }
+.dropzone .dz-icon { font-size:32px; margin-bottom:8px; }
+.dropzone p { font-size:14px; color:var(--text-2); }
+.dropzone .dz-sub { font-size:12px; color:var(--text-2); opacity:.8; margin-top:4px; }
+.file-info { display:none; align-items:center; justify-content:space-between; padding:12px 14px; background:var(--green-bg); border-radius:10px; margin-top:12px; font-size:13px; color:var(--green); }
+.file-info .fi-name { font-weight:500; word-break:break-all; }
+.file-info .fi-remove { cursor:pointer; font-size:12px; color:var(--text-2); }
+
+/* Analyze button */
+.analyze-wrap { margin-top:16px; }
+#analyzeBtn {
+  width:100%; padding:14px; border-radius:12px; border:none; background:var(--primary); color:#fff;
+  font-size:15px; font-weight:600; cursor:pointer; transition:all .15s;
+}
+#analyzeBtn:hover:not(:disabled) { background:var(--primary-dark); }
+#analyzeBtn:disabled { opacity:.45; cursor:not-allowed; }
+
+/* Progress */
+.progress { display:none; margin-top:16px; }
+.progress.show { display:block; }
+.progress-bar-track { height:8px; background:var(--primary-bg); border-radius:99px; overflow:hidden; }
+.progress-bar { height:100%; width:0%; background:var(--primary); border-radius:99px; transition:width .3s ease; }
+.progress-text { font-size:13px; color:var(--text-2); margin-top:8px; display:flex; justify-content:space-between; }
+.progress-steps { margin-top:10px; font-size:12px; color:var(--text-2); display:flex; flex-direction:column; gap:4px; }
+.step { display:flex; gap:8px; align-items:center; }
+.step .sp { width:16px; text-align:center; }
+.step.done { color:var(--green); }
+.step.active { color:var(--primary); font-weight:500; }
+.step.pending { opacity:.55; }
+
+/* Result */
+.result { display:none; }
+.result.show { display:block; }
+.result-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+.result-head h2 { margin:0; font-size:16px; }
+.result-actions { display:flex; gap:8px; }
+.btn-sm { padding:8px 14px; font-size:13px; border-radius:9px; }
+.btn-outline { background:var(--card); border:1px solid var(--border); color:var(--text); }
+.btn-outline:hover { border-color:var(--primary); color:var(--primary); }
+.dim-card { border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:12px; background:var(--card); }
+.dim-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.dim-icon { width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }
+.dim-title { font-size:15px; font-weight:600; }
+.dim-body { font-size:13.5px; color:var(--text); }
+.dim-body h1, .dim-body h2, .dim-body h3, .dim-body h4 { font-size:14px; margin:12px 0 6px; }
+.dim-body p { margin:6px 0; }
+.dim-body ul, .dim-body ol { margin:6px 0 6px 20px; }
+.dim-body li { margin:3px 0; }
+.dim-body strong { color:var(--text); }
+.dim-body code { background:var(--bg); padding:1px 5px; border-radius:4px; font-size:12.5px; font-family:Consolas, Menlo, monospace; }
+.dim-body blockquote { border-left:3px solid var(--border); padding-left:12px; color:var(--text-2); margin:8px 0; }
+
+/* Colors per dim */
+.dim-0 .dim-icon { background:#eef2ff; } .dim-0 .dim-title { color:var(--primary); }
+.dim-1 .dim-icon { background:#f3efff; } .dim-1 .dim-title { color:var(--accent); }
+.dim-2 .dim-icon { background:#e6f6ee; } .dim-2 .dim-title { color:var(--green); }
+.dim-3 .dim-icon { background:#fdf3e3; } .dim-3 .dim-title { color:var(--amber); }
+.dim-4 .dim-icon { background:#fdecea; } .dim-4 .dim-title { color:var(--red); }
+
+/* Error */
+.error-box { display:none; background:var(--red-bg); border:1px solid #f5c6c0; color:var(--red); border-radius:12px; padding:14px 16px; font-size:13.5px; margin-top:16px; }
+.error-box.show { display:block; }
+
+/* Footer */
+footer { text-align:center; font-size:12px; color:var(--text-2); opacity:.75; margin-top:32px; padding-top:16px; border-top:1px solid var(--border); }
+footer .warn { color:var(--amber); }
+
+/* Toast */
+.toast {
+  position:fixed; left:50%; bottom:32px; transform:translateX(-50%) translateY(20px);
+  background:#1f2d3d; color:#fff; padding:10px 20px; border-radius:10px; font-size:13px;
+  opacity:0; pointer-events:none; transition:all .25s; z-index:200;
+}
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+@media (max-width: 560px) {
+  .container { padding: 16px 12px 60px; }
+  .logo h1 { font-size:16px; }
+  .result-head { flex-direction:column; align-items:flex-start; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">
+      <div class="logo-badge">📄</div>
+      <div>
+        <h1>论文深度分析助手</h1>
+        <p>创新点 · Motivation · Idea · 实现 · 未来方向</p>
+      </div>
+    </div>
+    <button class="key-btn" id="keyBtn">
+      <span class="key-dot" id="keyDot"></span>
+      <span id="keyLabel">配置 API Key</span>
+    </button>
+  </header>
+
+  <div class="card">
+    <h2><span class="section-num">1</span>输入论文</h2>
+    <div class="tabs">
+      <button class="tab active" id="tabPaste" onclick="switchTab('paste')">粘贴文本</button>
+      <button class="tab" id="tabUpload" onclick="switchTab('upload')">上传 PDF</button>
+    </div>
+
+    <div id="panel-paste">
+      <textarea id="textInput" placeholder="将论文全文粘贴到这里……&#10;&#10;支持直接粘贴 PDF 中的文本、LaTeX 源码或任何格式的论文内容。"></textarea>
+      <div class="char-count"><span id="charCount">0</span> 字符</div>
+    </div>
+
+    <div id="panel-upload" style="display:none">
+      <div class="dropzone" id="dropzone">
+        <div class="dz-icon">⬆️</div>
+        <p>点击选择或拖拽 PDF 文件到这里</p>
+        <p class="dz-sub">支持 .pdf 格式，前端本地解析，不上传服务器</p>
+      </div>
+      <div class="file-info" id="fileInfo">
+        <span class="fi-name" id="fileName"></span>
+        <span class="fi-remove" id="fileRemove">移除</span>
+      </div>
+      <input type="file" id="fileInput" accept=".pdf,application/pdf" style="display:none">
+    </div>
+
+    <div class="analyze-wrap">
+      <button id="analyzeBtn" disabled>开始分析</button>
+    </div>
+
+    <div class="progress" id="progress">
+      <div class="progress-bar-track"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="progress-text"><span id="progressLabel">准备中…</span><span id="progressPct">0%</span></div>
+      <div class="progress-steps" id="progressSteps"></div>
+    </div>
+
+    <div class="error-box" id="errorBox"></div>
+  </div>
+
+  <div class="result" id="result">
+    <div class="card">
+      <div class="result-head">
+        <h2>📋 分析报告</h2>
+        <div class="result-actions">
+          <button class="btn btn-sm btn-outline" id="copyBtn">复制全文</button>
+          <button class="btn btn-sm btn-outline" id="downloadBtn">下载 Markdown</button>
+          <button class="btn btn-sm btn-outline" id="againBtn">再分析一篇</button>
+        </div>
+      </div>
+      <div id="dimCards"></div>
+    </div>
+  </div>
+
+  <footer>
+    <p>由 DeepSeek 驱动 · 论文文本仅发送至 DeepSeek API 进行分析</p>
+    <p class="warn">⚠️ 请勿将本站链接分享给不信任的人，避免 API Key 泄露</p>
+  </footer>
+</div>
+
+<!-- API Key Modal -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal">
+    <h3>配置 DeepSeek API Key</h3>
+    <p class="desc">在 <a href="https://platform.deepseek.com" target="_blank" style="color:var(--primary)">platform.deepseek.com</a> 注册后可获取，新用户有免费额度。</p>
+    <input type="password" id="keyInput" placeholder="sk-xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+    <div class="hint">
+      💡 建议在 DeepSeek 平台「用量管理」中设置消费限额，防止 Key 意外被盗刷。Key 仅保存在本机浏览器中。
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="keyClear">清除</button>
+      <button class="btn btn-primary" id="keySave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const API_URL = 'https://api.deepseek.com/chat/completions';
+const MODEL = 'deepseek-chat';
+const MAX_DIRECT_LEN = 30000;
+const CHUNK_LEN = 26000;
+
+const DIMS = [
+  { key: 'innovation', title: '创新点', icon: '💡', color: '#3b5bdb' },
+  { key: 'motivation', title: 'Motivation 研究动机', icon: '🎯', color: '#7048e8' },
+  { key: 'idea', title: '核心 Idea 与思路', icon: '🧠', color: '#0f7b4d' },
+  { key: 'implementation', title: '具体实现', icon: '⚙️', color: '#b26a00' },
+  { key: 'future', title: '未来方向', icon: '🚀', color: '#c0392b' }
+];
+
+let apiKey = localStorage.getItem('pa_api_key') || '';
+let pdfText = '';
+let analyzing = false;
+let currentReport = '';
+
+const $ = id => document.getElementById(id);
+
+function init() {
+  updateKeyUI();
+  $('keyBtn').onclick = () => { $('keyInput').value = apiKey; $('modalMask').classList.add('show'); $('keyInput').focus(); };
+  $('modalMask').onclick = e => { if (e.target === $('modalMask')) $('modalMask').classList.remove('show'); };
+  $('keySave').onclick = saveKey;
+  $('keyClear').onclick = clearKey;
+  $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') saveKey(); });
+
+  $('textInput').addEventListener('input', () => {
+    $('charCount').textContent = $('textInput').value.length;
+    updateAnalyzeBtn();
+  });
+  $('dropzone').onclick = () => $('fileInput').click();
+  $('fileInput').addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+  $('fileRemove').onclick = () => { pdfText = ''; $('fileInfo').style.display = 'none'; $('fileInput').value = ''; updateAnalyzeBtn(); };
+  ['dragover','dragenter'].forEach(ev => $('dropzone').addEventListener(ev, e => { e.preventDefault(); $('dropzone').classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev => $('dropzone').addEventListener(ev, e => { e.preventDefault(); $('dropzone').classList.remove('drag'); }));
+  $('dropzone').addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f && f.type === 'application/pdf') handleFile(f);
+    else showToast('请拖入 PDF 文件');
+  });
+
+  $('analyzeBtn').onclick = runAnalysis;
+  $('copyBtn').onclick = copyReport;
+  $('downloadBtn').onclick = downloadReport;
+  $('againBtn').onclick = () => location.reload();
+}
+
+function switchTab(tab) {
+  $('tabPaste').classList.toggle('active', tab === 'paste');
+  $('tabUpload').classList.toggle('active', tab === 'upload');
+  $('panel-paste').style.display = tab === 'paste' ? '' : 'none';
+  $('panel-upload').style.display = tab === 'upload' ? '' : 'none';
+  updateAnalyzeBtn();
+}
+
+function saveKey() {
+  const v = $('keyInput').value.trim();
+  if (!v) { showToast('请输入 API Key'); return; }
+  apiKey = v;
+  localStorage.setItem('pa_api_key', v);
+  $('modalMask').classList.remove('show');
+  updateKeyUI();
+  updateAnalyzeBtn();
+  showToast('API Key 已保存');
+}
+
+function clearKey() {
+  apiKey = ''; localStorage.removeItem('pa_api_key');
+  $('keyInput').value = ''; $('modalMask').classList.remove('show');
+  updateKeyUI(); updateAnalyzeBtn(); showToast('已清除 API Key');
+}
+
+function updateKeyUI() {
+  $('keyDot').classList.toggle('ok', !!apiKey);
+  $('keyLabel').textContent = apiKey ? '已配置 · ' + apiKey.slice(0, 6) + '…' : '配置 API Key';
+}
+
+function updateAnalyzeBtn() {
+  const hasText = $('textInput').value.trim().length > 50 || pdfText.trim().length > 50;
+  $('analyzeBtn').disabled = !(apiKey && hasText && !analyzing);
+}
+
+async function handleFile(file) {
+  try {
+    setProgress(8, '正在解析 PDF…');
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      setProgress(8 + (i / pdf.numPages) * 20, '正在解析第 ' + i + '/' + pdf.numPages + ' 页…');
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join(' ') + '\n\n';
+    }
+    pdfText = text.trim();
+    $('fileName').textContent = file.name + '（' + pdf.numPages + ' 页 · ' + pdfText.length + ' 字符）';
+    $('fileInfo').style.display = 'flex';
+    hideProgress();
+    updateAnalyzeBtn();
+    showToast('PDF 解析完成，共 ' + pdfText.length + ' 字符');
+  } catch (err) {
+    hideProgress();
+    showError('PDF 解析失败：' + err.message + '（可能是扫描版 PDF，请改用文本粘贴）');
+  }
+}
+
+/* ---------- 分析主流程 ---------- */
+
+async function runAnalysis() {
+  if (analyzing) return;
+  analyzing = true;
+  $('analyzeBtn').disabled = true;
+  hideError();
+  $('result').classList.remove('show');
+
+  const source = getInputText();
+  if (!source) { showError('请先输入论文内容'); analyzing = false; updateAnalyzeBtn(); return; }
+
+  try {
+    setProgress(30, '正在分析论文结构…', 1);
+    let finalText;
+
+    if (source.length <= MAX_DIRECT_LEN) {
+      finalText = source;
+      setProgress(45, '论文文本较短，直接进行深度分析…', 3);
+    } else {
+      const chunks = splitText(source, CHUNK_LEN);
+      setProgress(30, '论文较长，已切分为 ' + chunks.length + ' 段，正在逐段提取要点…', 1);
+      const summaries = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const pct = 30 + ((i + 1) / chunks.length) * 30;
+        setProgress(pct, '正在提取第 ' + (i + 1) + '/' + chunks.length + ' 段要点…');
+        const sum = await callDeepSeek([
+          { role: 'system', content: '你是一名资深的学术论文分析助手。用户会给你某篇论文的片段，请提取这一段的关键信息，用简洁的要点输出（中文）：1.研究背景与问题 2.提出的方法/技术细节 3.实验验证情况 4.关键结论。只输出要点，300字以内，不要客套。' },
+          { role: 'user', content: '论文片段（第' + (i + 1) + '/' + chunks.length + '段）：\n\n' + chunks[i] }
+        ]);
+        summaries.push('【第' + (i + 1) + '段要点】\n' + sum);
+      }
+      finalText = summaries.join('\n\n');
+      setProgress(62, '各段要点提取完成，正在生成综合分析…', 3);
+    }
+
+    setProgress(65, 'DeepSeek 正在深度分析论文…', 4);
+    const report = await callDeepSeek([
+      { role: 'system', content: '你是一名资深的 AI/机器学习学术论文分析专家，擅长从论文中提炼研究本质。你的分析必须严格基于论文内容，专业、准确、结构清晰，不得编造论文中不存在的内容。' },
+      { role: 'user', content: ANALYSIS_PROMPT + '\n\n===== 论文内容 =====\n' + finalText }
+    ]);
+
+    setProgress(95, '正在整理报告…', 5);
+    renderReport(report);
+    setProgress(100, '分析完成', 5);
+    setTimeout(hideProgress, 600);
+    showToast('分析完成 ✓');
+  } catch (err) {
+    hideProgress();
+    showError(parseApiError(err));
+  } finally {
+    analyzing = false;
+    updateAnalyzeBtn();
+  }
+}
+
+const ANALYSIS_PROMPT = `请对这篇论文进行深度分析，严格按照以下五个维度输出（使用 Markdown 格式，每个维度用二级标题，内容用要点列表）：
+
+## 创新点
+- 相比已有工作，这篇论文的核心创新在哪里？（2-4 点，说明"新"在何处）
+
+## Motivation 研究动机
+- 作者为什么做这个研究？要解决什么问题？什么痛点、局限或现实需求驱动了这项工作？
+
+## 核心 Idea 与思路
+- 论文的核心思路是什么？用一段话概括研究思想
+- 关键方法/技术路线是什么？
+
+## 具体实现
+- 方法的技术细节：模型结构、算法流程、关键设计
+- 实验设置：数据集、对比方法、评估指标
+- 关键结果与结论（引用论文中的数据）
+
+## 未来方向
+- 作者提到的局限与未来工作
+- 基于领域知识，你推断的潜在拓展方向（1-2 点）`;
+
+/* ---------- DeepSeek API ---------- */
+
+async function callDeepSeek(messages) {
+  const resp = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+    body: JSON.stringify({ model: MODEL, messages, temperature: 0.4, max_tokens: 4096, stream: false })
+  });
+  if (!resp.ok) {
+    let msg = 'HTTP ' + resp.status;
+    try { const d = await resp.json(); msg = d.error && d.error.message ? d.error.message : msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  const data = await resp.json();
+  return data.choices[0].message.content;
+}
+
+function parseApiError(err) {
+  const m = err.message || '';
+  if (m.includes('401')) return 'API Key 无效，请检查是否填写正确。';
+  if (m.includes('402')) return '余额不足，请到 DeepSeek 平台充值或检查限额。';
+  if (m.includes('429')) return '请求过于频繁或额度已用完，请稍后再试。';
+  if (m.includes('fetch') || m.includes('Failed')) return '网络请求失败，请检查网络连接后重试。';
+  if (m.includes('context')) return '论文内容过长，超出了模型上下文限制，请尝试精简后重试。';
+  return '分析失败：' + m;
+}
+
+/* ---------- 工具函数 ---------- */
+
+function getInputText() {
+  if (pdfText.trim()) return pdfText;
+  return $('textInput').value.trim();
+}
+
+function splitText(text, maxLen) {
+  const chunks = [];
+  while (text.length > maxLen) {
+    let cut = text.lastIndexOf('\n\n', maxLen);
+    if (cut < maxLen * 0.5) cut = text.lastIndexOf('。', maxLen);
+    if (cut < maxLen * 0.5) cut = text.lastIndexOf('. ', maxLen);
+    if (cut < maxLen * 0.5) cut = maxLen;
+    chunks.push(text.slice(0, cut));
+    text = text.slice(cut);
+  }
+  if (text.trim()) chunks.push(text);
+  return chunks;
+}
+
+function renderReport(md) {
+  currentReport = md;
+  const html = marked.parse(md);
+  const container = $('dimCards');
+  container.innerHTML = '';
+
+  const sections = splitByH2(html);
+  if (sections.length > 0) {
+    sections.forEach((sec, i) => {
+      const card = document.createElement('div');
+      card.className = 'dim-card dim-' + (i % 5);
+      card.innerHTML = '<div class="dim-head">' +
+        '<div class="dim-icon">' + DIMS[i % 5].icon + '</div>' +
+        '<div class="dim-title">' + DIMS[i % 5].title + '</div></div>' +
+        '<div class="dim-body">' + sec + '</div>';
+      container.appendChild(card);
+    });
+  } else {
+    container.innerHTML = '<div class="dim-card dim-0"><div class="dim-body">' + html + '</div></div>';
+  }
+  $('result').classList.add('show');
+  $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function splitByH2(html) {
+  const parts = [];
+  const regex = /<h2[^>]*>[\s\S]*?<\/h2>/g;
+  let last = 0, m;
+  while ((m = regex.exec(html)) !== null) {
+    if (m.index > last) parts.push(html.slice(last, m.index));
+    last = m.index;
+  }
+  if (last < html.length) parts.push(html.slice(last));
+  return parts.filter(p => p.trim());
+}
+
+function getMarkdown() {
+  return currentReport || '';
+}
+
+async function copyReport() {
+  try {
+    await navigator.clipboard.writeText(getMarkdown());
+    showToast('已复制到剪贴板 ✓');
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = getMarkdown(); document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+    showToast('已复制到剪贴板 ✓');
+  }
+}
+
+function downloadReport() {
+  const blob = new Blob([getMarkdown()], { type: 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '论文分析报告.md';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('已下载 Markdown 文件 ✓');
+}
+
+/* ---------- UI 状态 ---------- */
+
+const STEPS = [
+  { id: 'step-input', label: '解析输入' },
+  { id: 'step-direct', label: '文本预处理' },
+  { id: 'step-chunk', label: '长文分段提取' },
+  { id: 'step-analyze', label: '深度分析生成报告' },
+  { id: 'step-done', label: '完成' }
+];
+
+function setProgress(pct, label, stepIdx) {
+  $('progress').classList.add('show');
+  $('progressBar').style.width = pct + '%';
+  $('progressPct').textContent = Math.round(pct) + '%';
+  if (label) $('progressLabel').textContent = label;
+  if (stepIdx !== undefined) renderSteps(stepIdx);
+}
+
+function renderSteps(activeIdx) {
+  const el = $('progressSteps');
+  el.innerHTML = STEPS.map((s, i) =>
+    '<div class="step ' + (i < activeIdx ? 'done' : i === activeIdx ? 'active' : 'pending') + '" data-step="' + s.id + '">' +
+    '<span class="sp">' + (i < activeIdx ? '✓' : i === activeIdx ? '●' : '○') + '</span>' + s.label + '</div>'
+  ).join('');
+}
+
+function hideProgress() {
+  $('progress').classList.remove('show');
+}
+
+function showError(msg) {
+  $('errorBox').textContent = msg;
+  $('errorBox').classList.add('show');
+  $('errorBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function hideError() {
+  $('errorBox').classList.remove('show');
+}
+
+let toastTimer;
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+init();
+</script>
+</body>
+</html>
