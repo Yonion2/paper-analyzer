@@ -4,9 +4,39 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>论文深度分析助手 · Paper Analyzer</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// CDN 加载失败时的自动回退（主源优先用国内可达的 BootCDN / unpkg）
+window.__cdnFallback = function (which) {
+  var map = {
+    pdf: [
+      'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js',
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js'
+    ],
+    marked: [
+      'https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js',
+      'https://cdn.bootcdn.net/ajax/libs/marked/9.1.6/marked.min.js'
+    ],
+    supabase: [
+      'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+      'https://unpkg.com/@supabase/supabase-js@2.45.4'
+    ]
+  };
+  var urls = map[which] || [];
+  var i = 0;
+  (function next() {
+    if (i >= urls.length) { console.error('[paper-analyzer] ' + which + ' 备用源全部加载失败'); return; }
+    var s = document.createElement('script');
+    s.src = urls[i++];
+    s.async = false;
+    s.onload = function () { console.log('[paper-analyzer] ' + which + ' 备用源加载成功'); };
+    s.onerror = next;
+    document.head.appendChild(s);
+  })();
+};
+</script>
+<script src="https://cdn.bootcdn.net/ajax/libs/pdf.js/3.11.174/pdf.min.js" onerror="__cdnFallback('pdf')"></script>
+<script src="https://unpkg.com/marked@9.1.6/marked.min.js" onerror="__cdnFallback('marked')"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2" onerror="__cdnFallback('supabase')"></script>
 <style>
 :root {
   --bg: #f5f7fb;
@@ -338,7 +368,14 @@ footer .warn { color:var(--amber); }
 </div>
 
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+if (typeof pdfjsLib !== 'undefined') {
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.bootcdn.net/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  } catch (e) { console.warn('[paper-analyzer] pdf.js worker 配置失败', e); }
+} else {
+  console.warn('[paper-analyzer] pdf.js 未加载，尝试备用源…');
+  if (window.__cdnFallback) __cdnFallback('pdf');
+}
 
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const MODEL = 'deepseek-chat';
@@ -370,6 +407,8 @@ const $ = id => document.getElementById(id);
 
 function init() {
   try {
+    if (typeof pdfjsLib === 'undefined') console.warn('[paper-analyzer] pdf.js 不可用（PDF 上传受限，可粘贴文本）');
+    if (typeof marked === 'undefined') console.warn('[paper-analyzer] marked 不可用（Markdown 渲染已降级为纯文本）');
     updateKeyUI();
     initSupabase();
     const keyBtn = $('keyBtn');
@@ -474,6 +513,10 @@ function updateAnalyzeBtn() {
 
 async function handleFile(file) {
   try {
+    if (typeof pdfjsLib === 'undefined') {
+      showError('PDF 解析库尚未加载成功（网络原因）。请刷新页面重试，或改用「粘贴文本」方式输入论文。');
+      return;
+    }
     setProgress(8, '正在解析 PDF…');
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -748,7 +791,8 @@ async function loadRecords() {
 function openDetail(r) {
   currentDetailId = r.id;
   $('histDetailTitle').textContent = r.title;
-  $('histDetailReport').innerHTML = '<div class="dim-body">' + (marked.parse(r.report || '') || '') + '</div>';
+  const rHtml = (typeof marked !== 'undefined') ? marked.parse(r.report || '') : esc(r.report || '');
+  $('histDetailReport').innerHTML = '<div class="dim-body">' + (rHtml || '') + '</div>';
   $('histNote').value = r.note || '';
   $('histListView').style.display = 'none';
   $('histDetailView').style.display = '';
@@ -824,7 +868,7 @@ function splitText(text, maxLen) {
 
 function renderReport(md) {
   currentReport = md;
-  const html = marked.parse(md);
+  const html = (typeof marked !== 'undefined') ? marked.parse(md) : '<pre style="white-space:pre-wrap;font-size:12px">' + esc(md) + '</pre>';
   const container = $('dimCards');
   container.innerHTML = '';
 
