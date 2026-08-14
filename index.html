@@ -251,8 +251,8 @@ footer .warn { color:var(--amber); }
   <div class="card">
     <h2><span class="section-num">1</span>输入论文</h2>
     <div class="tabs">
-      <button class="tab active" id="tabPaste" onclick="switchTab('paste')">粘贴文本</button>
-      <button class="tab" id="tabUpload" onclick="switchTab('upload')">上传 PDF</button>
+      <button class="tab active" id="tabPaste" type="button">粘贴文本</button>
+      <button class="tab" id="tabUpload" type="button">上传 PDF</button>
     </div>
 
     <div id="panel-paste">
@@ -303,6 +303,7 @@ footer .warn { color:var(--amber); }
   <footer>
     <p>由 DeepSeek 驱动 · 论文文本仅发送至 DeepSeek API 进行分析</p>
     <p class="warn">⚠️ 请勿将本站链接分享给不信任的人，避免 API Key 泄露</p>
+    <p style="margin-top:8px; font-weight:600; letter-spacing:.3px;">v2.2 <span id="jsOK" style="display:none; color:var(--green); font-weight:600;">· JS 运行正常 ✓</span></p>
   </footer>
 </div>
 
@@ -390,13 +391,28 @@ const DIMS = [
   { key: 'future', title: '未来方向', icon: '🚀', color: '#c0392b' }
 ];
 
-let apiKey = localStorage.getItem('pa_api_key') || '';
+const storage = {
+  get(key) {
+    try { return window.localStorage.getItem(key) || ''; }
+    catch (err) { console.warn('[paper-analyzer] 本地存储不可用', err); return ''; }
+  },
+  set(key, value) {
+    try { window.localStorage.setItem(key, value); return true; }
+    catch (err) { console.warn('[paper-analyzer] 无法写入本地存储', err); return false; }
+  },
+  remove(key) {
+    try { window.localStorage.removeItem(key); return true; }
+    catch (err) { console.warn('[paper-analyzer] 无法清除本地存储', err); return false; }
+  }
+};
+
+let apiKey = storage.get('pa_api_key');
 let pdfText = '';
 let analyzing = false;
 let currentReport = '';
 let sb = {
-  url: localStorage.getItem('pa_sb_url') || '',
-  key: localStorage.getItem('pa_sb_key') || ''
+  url: storage.get('pa_sb_url'),
+  key: storage.get('pa_sb_key')
 };
 let supabase = null;
 let currentUser = null;
@@ -425,6 +441,8 @@ function init() {
       });
     }
     $('modalMask').onclick = e => { if (e.target === $('modalMask')) $('modalMask').classList.remove('show'); };
+  $('tabPaste').onclick = () => switchTab('paste');
+  $('tabUpload').onclick = () => switchTab('upload');
   $('keySave').onclick = saveKey;
   $('keyClear').onclick = clearKey;
   $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') saveKey(); });
@@ -464,6 +482,7 @@ function init() {
   $('authLogout').onclick = authLogout;
   $('authEmail').addEventListener('keydown', e => { if (e.key === 'Enter') authLogin(); });
   $('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') authLogin(); });
+  const jsOK = $('jsOK'); if (jsOK) jsOK.style.display = 'inline';
   } catch (err) {
     showToast('初始化失败：' + err.message);
     console.error('init error:', err);
@@ -483,10 +502,10 @@ function saveKey() {
   const u = $('sbUrl').value.trim(), k = $('sbKey').value.trim();
   if (!v && !u && !k) { showToast('请至少填写 API Key'); return; }
   if ((u || k) && !(u && k)) { showToast('云端记录需填全 Supabase URL / Key'); return; }
-  if (v) { apiKey = v; localStorage.setItem('pa_api_key', v); }
+  if (v) { apiKey = v; storage.set('pa_api_key', v); }
   if (u && k) {
     sb.url = u; sb.key = k;
-    localStorage.setItem('pa_sb_url', u); localStorage.setItem('pa_sb_key', k);
+    storage.set('pa_sb_url', u); storage.set('pa_sb_key', k);
     if (!supabase) initSupabase();
   }
   $('modalMask').classList.remove('show');
@@ -496,7 +515,7 @@ function saveKey() {
 }
 
 function clearKey() {
-  apiKey = ''; localStorage.removeItem('pa_api_key');
+  apiKey = ''; storage.remove('pa_api_key');
   $('keyInput').value = ''; $('modalMask').classList.remove('show');
   updateKeyUI(); updateAnalyzeBtn(); showToast('已清除 API Key');
 }
@@ -979,7 +998,11 @@ function showToast(msg) {
 
 window.onerror = (msg, url, line) => { showToast('JS 错误（行 ' + line + '）：' + msg); console.error(msg, url, line); };
 window.addEventListener('unhandledrejection', e => { showToast('异步错误：' + e.reason); console.error(e.reason); });
-init();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init, { once: true });
+} else {
+  init();
+}
 </script>
 </body>
 </html>
