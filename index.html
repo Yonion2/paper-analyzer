@@ -369,10 +369,23 @@ let noteTimer = null;
 const $ = id => document.getElementById(id);
 
 function init() {
-  updateKeyUI();
-  initSupabase();
-  $('keyBtn').onclick = () => { $('keyInput').value = apiKey; $('sbUrl').value = sb.url; $('sbKey').value = sb.key; updateAuthUI(); $('modalMask').classList.add('show'); $('keyInput').focus(); };
-  $('modalMask').onclick = e => { if (e.target === $('modalMask')) $('modalMask').classList.remove('show'); };
+  try {
+    updateKeyUI();
+    initSupabase();
+    const keyBtn = $('keyBtn');
+    if (keyBtn) {
+      keyBtn.addEventListener('click', () => {
+        try {
+          $('keyInput').value = apiKey;
+          $('sbUrl').value = sb.url || '';
+          $('sbKey').value = sb.key || '';
+          updateAuthUI();
+          $('modalMask').classList.add('show');
+          setTimeout(() => $('keyInput').focus(), 50);
+        } catch (err) { showToast('打开配置失败：' + err.message); console.error(err); }
+      });
+    }
+    $('modalMask').onclick = e => { if (e.target === $('modalMask')) $('modalMask').classList.remove('show'); };
   $('keySave').onclick = saveKey;
   $('keyClear').onclick = clearKey;
   $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') saveKey(); });
@@ -412,6 +425,10 @@ function init() {
   $('authLogout').onclick = authLogout;
   $('authEmail').addEventListener('keydown', e => { if (e.key === 'Enter') authLogin(); });
   $('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') authLogin(); });
+  } catch (err) {
+    showToast('初始化失败：' + err.message);
+    console.error('init error:', err);
+  }
 }
 
 function switchTab(tab) {
@@ -590,23 +607,29 @@ function sbConfigured() { return !!(sb.url && sb.key); }
 
 function initSupabase() {
   if (!sbConfigured() || supabase || typeof window.supabase === 'undefined') return;
-  supabase = window.supabase.createClient(sb.url, sb.key);
-  // 会话恢复（supabase-js 自动持久化登录态，刷新页面后自动恢复）
-  supabase.auth.getUser().then(({ data }) => {
-    currentUser = data.user || null;
-    updateAuthUI();
-  });
-  supabase.auth.onAuthStateChange((event, session) => {
-    currentUser = session ? session.user : null;
-    updateAuthUI();
-  });
+  try {
+    supabase = window.supabase.createClient(sb.url, sb.key);
+    // 会话恢复（supabase-js 自动持久化登录态，刷新页面后自动恢复）
+    supabase.auth.getUser().then(({ data }) => {
+      currentUser = data.user || null;
+      updateAuthUI();
+    });
+    supabase.auth.onAuthStateChange((event, session) => {
+      currentUser = session ? session.user : null;
+      updateAuthUI();
+    });
+  } catch (err) {
+    console.error('initSupabase error:', err);
+    supabase = null;
+  }
 }
 
 function updateAuthUI() {
   const loggedIn = !!currentUser;
-  $('authArea').style.display = loggedIn ? 'none' : '';
-  $('authLoggedIn').style.display = loggedIn ? 'flex' : 'none';
-  if (loggedIn && currentUser.email) $('authUserLabel').textContent = '✅ 已登录：' + currentUser.email;
+  const authArea = $('authArea'), authLoggedIn = $('authLoggedIn'), authUserLabel = $('authUserLabel');
+  if (authArea) authArea.style.display = loggedIn ? 'none' : '';
+  if (authLoggedIn) authLoggedIn.style.display = loggedIn ? 'flex' : 'none';
+  if (loggedIn && currentUser.email && authUserLabel) authUserLabel.textContent = '✅ 已登录：' + currentUser.email;
 }
 
 function showAuthHint(msg) {
@@ -910,6 +933,8 @@ function showToast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
 }
 
+window.onerror = (msg, url, line) => { showToast('JS 错误（行 ' + line + '）：' + msg); console.error(msg, url, line); };
+window.addEventListener('unhandledrejection', e => { showToast('异步错误：' + e.reason); console.error(e.reason); });
 init();
 </script>
 </body>
