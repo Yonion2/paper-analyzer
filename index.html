@@ -369,6 +369,11 @@ footer .warn { color:var(--amber); }
 </div>
 
 <script>
+(function(){
+  var el = document.getElementById('jsOK');
+  if (el) { el.style.display = 'inline'; el.style.color = 'var(--amber)'; el.textContent = '· 脚本已加载'; }
+})();
+
 if (typeof pdfjsLib !== 'undefined') {
   try {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.bootcdn.net/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -414,7 +419,7 @@ let sb = {
   url: storage.get('pa_sb_url'),
   key: storage.get('pa_sb_key')
 };
-let supabase = null;
+let supabaseClient = null;
 let currentUser = null;
 let currentDetailId = null;
 let noteTimer = null;
@@ -425,6 +430,7 @@ function init() {
   try {
     if (typeof pdfjsLib === 'undefined') console.warn('[paper-analyzer] pdf.js 不可用（PDF 上传受限，可粘贴文本）');
     if (typeof marked === 'undefined') console.warn('[paper-analyzer] marked 不可用（Markdown 渲染已降级为纯文本）');
+    const jsOK = $('jsOK'); if (jsOK) { jsOK.style.display = 'inline'; jsOK.style.color = 'var(--green)'; jsOK.textContent = '· JS 运行正常 ✓'; }
     updateKeyUI();
     initSupabase();
     const keyBtn = $('keyBtn');
@@ -482,10 +488,15 @@ function init() {
   $('authLogout').onclick = authLogout;
   $('authEmail').addEventListener('keydown', e => { if (e.key === 'Enter') authLogin(); });
   $('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') authLogin(); });
-  const jsOK = $('jsOK'); if (jsOK) jsOK.style.display = 'inline';
   } catch (err) {
     showToast('初始化失败：' + err.message);
     console.error('init error:', err);
+    const jsOKerr = $('jsOK');
+    if (jsOKerr) {
+      jsOKerr.style.display = 'inline';
+      jsOKerr.style.color = 'var(--red)';
+      jsOKerr.textContent = '· JS 初始化失败：' + err.message;
+    }
   }
 }
 
@@ -506,7 +517,7 @@ function saveKey() {
   if (u && k) {
     sb.url = u; sb.key = k;
     storage.set('pa_sb_url', u); storage.set('pa_sb_key', k);
-    if (!supabase) initSupabase();
+    if (!supabaseClient) initSupabase();
   }
   $('modalMask').classList.remove('show');
   updateKeyUI();
@@ -668,21 +679,21 @@ function parseApiError(err) {
 function sbConfigured() { return !!(sb.url && sb.key); }
 
 function initSupabase() {
-  if (!sbConfigured() || supabase || typeof window.supabase === 'undefined') return;
+  if (!sbConfigured() || supabaseClient || typeof window.supabase === 'undefined') return;
   try {
-    supabase = window.supabase.createClient(sb.url, sb.key);
+    supabaseClient = window.supabase.createClient(sb.url, sb.key);
     // 会话恢复（supabase-js 自动持久化登录态，刷新页面后自动恢复）
-    supabase.auth.getUser().then(({ data }) => {
+    supabaseClient.auth.getUser().then(({ data }) => {
       currentUser = data.user || null;
       updateAuthUI();
     });
-    supabase.auth.onAuthStateChange((event, session) => {
+    supabaseClient.auth.onAuthStateChange((event, session) => {
       currentUser = session ? session.user : null;
       updateAuthUI();
     });
   } catch (err) {
     console.error('initSupabase error:', err);
-    supabase = null;
+    supabaseClient = null;
   }
 }
 
@@ -704,10 +715,10 @@ async function authLogin() {
   const email = $('authEmail').value.trim();
   const pass = $('authPass').value;
   if (!email || !pass) { showToast('请输入邮箱和密码'); return; }
-  if (!supabase) initSupabase();
-  if (!supabase) { showAuthHint('请先填写 Supabase URL 和 anon key，点击「保存」后再登录。'); return; }
+  if (!supabaseClient) initSupabase();
+  if (!supabaseClient) { showAuthHint('请先填写 Supabase URL 和 anon key，点击「保存」后再登录。'); return; }
   showAuthHint('');
-  const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
   if (error) { showToast('登录失败：' + error.message); return; }
   showToast('登录成功 ✓');
 }
@@ -717,10 +728,10 @@ async function authSignup() {
   const pass = $('authPass').value;
   if (!email || !pass) { showToast('请输入邮箱和密码'); return; }
   if (pass.length < 6) { showToast('密码至少 6 位'); return; }
-  if (!supabase) initSupabase();
-  if (!supabase) { showAuthHint('请先填写 Supabase URL 和 anon key，点击「保存」后再注册。'); return; }
+  if (!supabaseClient) initSupabase();
+  if (!supabaseClient) { showAuthHint('请先填写 Supabase URL 和 anon key，点击「保存」后再注册。'); return; }
   showAuthHint('');
-  const { data, error } = await supabase.auth.signUp({ email, password: pass });
+  const { data, error } = await supabaseClient.auth.signUp({ email, password: pass });
   if (error) { showToast('注册失败：' + error.message); return; }
   if (data && data.user && !data.session) {
     showAuthHint('注册成功！已发送确认邮件，请查收并点击确认链接后，再回来登录。');
@@ -730,8 +741,8 @@ async function authSignup() {
 }
 
 async function authLogout() {
-  if (!supabase) return;
-  const { error } = await supabase.auth.signOut();
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.auth.signOut();
   if (!error) showToast('已退出登录');
 }
 
@@ -746,12 +757,12 @@ function getTitle() {
 
 async function saveRecord(report) {
   if (!sbConfigured() || !report) return;
-  if (!supabase) initSupabase();
-  if (!supabase) return;
-  const { data: { user } } = await supabase.auth.getUser();
+  if (!supabaseClient) initSupabase();
+  if (!supabaseClient) return;
+  const { data: { user } } = await supabaseClient.auth.getUser();
   if (!user) return;
   try {
-    const { error } = await supabase.from('records').insert({
+    const { error } = await supabaseClient.from('records').insert({
       user_id: user.id,
       title: getTitle(),
       report: report,
@@ -769,7 +780,7 @@ async function loadRecords() {
     list.innerHTML = '';
     return;
   }
-  if (!supabase) initSupabase();
+  if (!supabaseClient) initSupabase();
   if (!currentUser) {
     status.textContent = '未登录。点击右上角「配置」，用邮箱密码登录后即可查看自己的记录。';
     list.innerHTML = '';
@@ -777,7 +788,7 @@ async function loadRecords() {
   }
   status.textContent = '正在加载…';
   try {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await supabaseClient
       .from('records')
       .select('*')
       .order('created_at', { ascending: false });
@@ -827,9 +838,9 @@ function backToList() {
 async function deleteRecord(id) {
   if (!id) return;
   if (!confirm('确定删除这条记录吗？此操作不可恢复。')) return;
-  if (!supabase) { showToast('未配置云端记录'); return; }
+  if (!supabaseClient) { showToast('未配置云端记录'); return; }
   try {
-    const { error } = await supabase.from('records').delete().eq('id', id);
+    const { error } = await supabaseClient.from('records').delete().eq('id', id);
     if (!error) {
       showToast('已删除 ✓');
       backToList();
@@ -843,10 +854,10 @@ async function deleteRecord(id) {
 
 async function saveNote() {
   if (!currentDetailId) return;
-  if (!supabase) return;
+  if (!supabaseClient) return;
   const note = $('histNote').value;
   try {
-    const { error } = await supabase.from('records').update({ note }).eq('id', currentDetailId);
+    const { error } = await supabaseClient.from('records').update({ note }).eq('id', currentDetailId);
     if (!error) showToast('笔记已保存 ✓');
   } catch (e) {}
 }
